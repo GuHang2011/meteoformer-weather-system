@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+	<head>
+		<meta charset="utf-8" />
+		<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+		<title>MeteoFormer · 区域气象预测系统</title>
+		<meta name="theme-color" content="#17373e" />
+		<meta name="description" content="MeteoFormer 区域气象预测研究原型：交互地图、24 小时预报、单点查询及模型实验。在线演示使用合成数据。" />
+		<link rel="icon" type="image/svg+xml" href="/weather-mark.svg" />
+	</head>
+	<body>
+		<div id="app"><noscript><p style="padding:24px;font:16px sans-serif">请在浏览器中启用 JavaScript，然后刷新页面。</p></noscript></div>
+		<script nomodule>
+			document.getElementById('app').innerHTML = '<p style="padding:24px;font:16px sans-serif;line-height:1.8">当前浏览器版本较旧，无法运行此系统。请使用新版 Chrome、Edge、Firefox 或 Safari；360、QQ 浏览器请选择极速模式。</p>';
+		</script>
+		<script type="module" src="/src/main.ts"></script>
+	</body>
+</html>

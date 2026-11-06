@@ -1,0 +1,31 @@
+{
+  "name": "meteoformer-weather-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Regional weather forecasting research prototype, adapted from the existing Vue workspace",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:demo": "node scripts/prepare-demo.cjs && vite build --mode demo",
+    "typecheck": "vue-tsc -p tsconfig.weather.json --noEmit"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
+    "vue": "^3.2.45"
+  },
+  "devDependencies": {
+    "@types/node": "^18.11.13",
+    "@vitejs/plugin-vue": "^4.0.0",
+    "@vue/compiler-sfc": "^3.2.45",
+    "playwright": "1.64.1",
+    "prettier": "^2.8.1",
+    "typescript": "^4.9.4",
+    "vite": "^4.0.0",
+    "vue-tsc": "1.8.27"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
+}

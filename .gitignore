@@ -1,0 +1,15 @@
+node_modules/
+.venv/
+backend/data/
+__pycache__/
+.pytest_cache/
+outputs/
+frontend/weather-dist/
+frontend/demo-dist/
+.env
+.env.*
+!.env.example
+*.log
+*.sqlite3*
+*.pt
+initial-admin-password.txt
