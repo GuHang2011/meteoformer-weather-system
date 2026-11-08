@@ -27,11 +27,11 @@ import './weather.css';
 import './synoptic.css';
 
 const navigation = [
-	{ id: 'overview', label: '预报工作台', icon: Odometer, subtitle: '区域天气，一目了然' },
-	{ id: 'forecast', label: '预报与查询', icon: DataLine, subtitle: '探索未来 24 小时的天气演变' },
-	{ id: 'data', label: '气象数据', icon: FolderOpened, subtitle: '管理数据来源与时空质量' },
-	{ id: 'training', label: '模型实验室', icon: Cpu, subtitle: '从历史气象场训练你的预测模型' },
-	{ id: 'warnings', label: '天气告警', icon: Bell, subtitle: '关注达到阈值的天气过程' },
+	{ id: 'overview', label: '预报工作台', icon: Odometer, subtitle: '查看区域预报' },
+	{ id: 'forecast', label: '预报与查询', icon: DataLine, subtitle: '选择时效和要素' },
+	{ id: 'data', label: '气象数据', icon: FolderOpened, subtitle: '数据来源与质量' },
+	{ id: 'training', label: '训练记录', icon: Cpu, subtitle: '训练任务与评估结果' },
+	{ id: 'warnings', label: '阈值告警', icon: Bell, subtitle: '查看达到阈值的天气过程' },
 ];
 const initialPage = location.hash.slice(1);
 const page = ref(navigation.some((n) => n.id === initialPage) ? initialPage : 'overview');
@@ -304,7 +304,7 @@ onUnmounted(() => {
 			<a class="brand" href="#overview"
 				><span class="brand-icon"><Cloudy /></span><span>MeteoFormer<small>区域气象预测系统</small></span></a
 			>
-			<div class="nav-caption">气象工作空间</div>
+			<div class="nav-caption">业务导航</div>
 			<nav aria-label="主导航">
 				<button
 					v-for="item in navigation"
@@ -316,13 +316,12 @@ onUnmounted(() => {
 				>
 					<component :is="item.icon" /><span>{{ item.label }}</span
 					><span class="nav-count" v-if="item.id === 'warnings' && activeWarnings.length">{{ activeWarnings.length }}</span
-					><ArrowRight v-else-if="page === item.id" class="nav-arrow" />
+					>
 				</button>
 			</nav>
 			<div class="sidebar-note">
-				<span class="orbit-icon">MF</span><strong>区域预测实验平台</strong>
-				<p>输入 12 小时 · 预报 24 小时<br />Swin Transformer + ConvLSTM</p>
-				<span class="prototype-tag">研究原型 · v1.0</span>
+				<strong>预报窗口</strong>
+				<p>输入 12 小时 · 预报 24 小时</p>
 			</div>
 			<div class="sidebar-status">
 				<i :class="{ online: connected }" /><span>{{ isDemo ? (connected ? '演示快照已加载' : '正在加载演示') : (connected ? '气象服务已连接' : '气象服务未连接') }}</span>
@@ -331,13 +330,12 @@ onUnmounted(() => {
 		<div class="workspace">
 			<header class="topbar">
 				<div class="breadcrumb">
-					气象工作空间 <span>/</span> <strong>{{ currentPage.label }}</strong>
+					预报工作区 <span>/</span> <strong>{{ currentPage.label }}</strong>
 				</div>
 				<div class="topbar-actions">
 					<span class="timezone">北京时间 UTC+8</span
 					><button class="icon-button" aria-label="刷新数据" :disabled="isBusy" @click="action('正在刷新', refresh)"><Refresh /></button
-					><a v-if="isDemo" class="user-button demo-source" :href="repositoryUrl" target="_blank" rel="noopener noreferrer">GitHub 源码 <ArrowRight /></a
-					><button v-else class="user-button" @click="admin ? logout() : (loginOpen = true)" :disabled="isBusy">
+					><button v-if="!isDemo" class="user-button" @click="admin ? logout() : (loginOpen = true)" :disabled="isBusy">
 						<span class="avatar">{{ admin ? '管' : '访' }}</span
 						>{{ admin ? '管理员 · 退出' : '访客 · 管理员登录' }}
 					</button>
@@ -345,17 +343,16 @@ onUnmounted(() => {
 			</header>
 			<main :class="{ 'forecast-main': page === 'overview' || page === 'forecast' }">
 				<div v-if="isDemo" class="demo-banner" role="note">
-					<span class="demo-badge">在线演示</span>
-					<span>合成数据 · 只读快照 · 非实时预报<span class="demo-snapshot-date" v-if="overview.server_time"> / {{ overview.server_time.slice(0, 10) }}</span></span>
-					<a :href="`${repositoryUrl}#本地运行完整系统`" target="_blank" rel="noopener noreferrer">运行完整系统 ↗</a>
+					<span class="demo-badge">合成数据演示</span>
+					<span>只读快照 · 非实时预报<span class="demo-snapshot-date" v-if="overview.server_time"> · {{ overview.server_time.slice(0, 10) }}</span></span>
 				</div>
 				<div class="page-heading">
 					<div>
-						<div class="eyebrow">FORECAST OPERATIONS <span class="heading-divider">/</span> 区域气象</div>
 						<h1>{{ currentPage.label }}</h1>
-						<p>{{ currentPage.subtitle }}</p>
+						<p v-if="page !== 'overview' && page !== 'forecast'">{{ currentPage.subtitle }}</p>
 					</div>
-					<span class="page-date">{{ date(overview.server_time) }}<small>{{ isDemo ? '快照时间 · 北京时间' : '24 小时预报窗口' }}</small></span>
+					<span class="page-date" v-if="forecast && (page === 'overview' || page === 'forecast')">起报 {{ date(forecast.init_time) }}<small>北京时间 · 预报至 +24 h</small></span>
+					<span class="page-date" v-else>{{ date(overview.server_time) }}<small>{{ isDemo ? '快照时间 · 北京时间' : '服务时间 · 北京时间' }}</small></span>
 				</div>
 				<div v-if="error" class="notice error" role="alert">
 					<Warning /><span>{{ error }}</span
@@ -420,7 +417,7 @@ onUnmounted(() => {
 								<div class="section-heading">
 									<div>
 										<h2>区域气象场</h2>
-										<p>{{ date(forecast.init_time) }} 起报 · {{ forecast.engine_label }}</p>
+										<p>{{ sourceName(forecast.source) }} · {{ forecast.engine_label }}<template v-if="grid"> · {{ grid.lon.length }} × {{ grid.lat.length }} 网格</template></p>
 									</div>
 									<button
 										class="icon-button"
@@ -579,8 +576,8 @@ onUnmounted(() => {
 								<FolderOpened class="section-icon" />
 							</div>
 							<div v-if="isDemo" class="demo-feature-note">
-								<strong>从数据开始，复现一次预报</strong>
-								<p>下方提供本次实验使用的 480 小时合成数据，可下载 NetCDF 查看变量与网格。在本地运行完整系统后，可导入自己的区域资料。</p>
+								<strong>合成数据下载</strong>
+								<p>本次快照包含 480 小时合成数据，可在下方下载 NetCDF。导入区域资料需运行本地完整系统。</p>
 								<a :href="`${repositoryUrl}#本地运行完整系统`" target="_blank" rel="noopener noreferrer">查看安装与导入说明 ↗</a>
 							</div>
 							<form v-else @submit.prevent="importData" class="stack-form">
@@ -616,8 +613,7 @@ onUnmounted(() => {
 							</p>
 						</section>
 						<section class="panel data-guide">
-							<span class="eyebrow">DATA QUALITY</span>
-							<h2>先让数据可靠，<br />再让预测发生。</h2>
+							<h2>导入校验规则</h2>
 							<ul>
 								<li>逐小时连续时间，至少 12 小时</li>
 								<li>缺失不超过 5%，仅填充短时内部缺口</li>
@@ -660,14 +656,14 @@ onUnmounted(() => {
 					<section class="panel">
 						<div class="section-heading">
 							<div>
-								<h2>{{ isDemo ? '模型训练与评估' : '启动模型训练' }}</h2>
-								<p>Swin 窗口注意力 → ConvLSTM 时序记忆 → 网格解码</p>
+								<h2>{{ isDemo ? '训练记录与评估' : '启动模型训练' }}</h2>
+								<p>Swin Transformer / ConvLSTM · 逐小时网格预测</p>
 							</div>
-							<span class="tag">{{ isDemo ? '已完成实验快照' : (health.model_available ? 'PyTorch 已就绪' : '需安装 PyTorch') }}</span>
+							<span class="tag">{{ isDemo ? '记录快照' : (health.model_available ? '运行环境已就绪' : '需安装 PyTorch') }}</span>
 						</div>
 						<div v-if="isDemo" class="demo-feature-note">
-							<strong>一次真实运行的合成数据实验</strong>
-							<p>下方为本地 PyTorch 训练留下的日志与独立测试分区结果。在线版用于浏览记录；新的训练、数据导入与预报生成请在本地完整系统中运行。</p>
+							<strong>合成数据训练记录</strong>
+							<p>展示已完成的训练日志与独立测试分区指标。新建训练任务需运行本地完整系统。</p>
 							<a :href="`${repositoryUrl}#本地运行完整系统`" target="_blank" rel="noopener noreferrer">查看复现方法 ↗</a>
 						</div>
 						<form v-else class="control-row" @submit.prevent="train">
@@ -769,7 +765,7 @@ onUnmounted(() => {
 								<h2>告警阈值</h2>
 								<p>区域任意格点达到阈值，即生成对应天气过程记录</p>
 							</div>
-							<span class="tag">研究用阈值告警</span>
+							<span class="tag">阈值记录</span>
 						</div>
 						<form class="control-row" @submit.prevent="saveThresholds">
 							<label class="grow"
@@ -831,7 +827,7 @@ onUnmounted(() => {
 						</article>
 					</section>
 				</template>
-				<footer class="workspace-footer"><span>MeteoFormer · 区域气象预测研究原型</span><span>演示数据与实验预报不作为官方气象预警</span></footer>
+				<footer class="workspace-footer"><span>MeteoFormer · 实验预报不作为官方气象预警</span><span v-if="isDemo" class="footer-links"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">GitHub 源码</a><a :href="`${repositoryUrl}#本地运行完整系统`" target="_blank" rel="noopener noreferrer">本地运行</a></span></footer>
 			</main>
 		</div>
 		<div v-if="loginOpen" class="modal-backdrop" @click.self="loginOpen = false" @keydown.esc="loginOpen = false">

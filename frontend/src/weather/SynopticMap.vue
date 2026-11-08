@@ -7,8 +7,16 @@ const props = defineProps<{ grid: any; point: { lon: number; lat: number } }>();
 const emit = defineEmits<{ (e: 'select', value: { lon: number; lat: number }): void }>();
 const land = ref<any[]>([]),
 	landError = ref(false),
+	water = ref<{ rivers: WaterFeature[]; lakes: WaterFeature[] }>({ rivers: [], lakes: [] }),
+	waterError = ref(false),
+	basemap = ref('relief'),
+	reliefLoaded = ref(false),
+	reliefError = ref(false),
 	smooth = ref(true),
 	zoom = ref(1);
+type WaterFeature = { name: string; bounds: number[]; lines: number[][][] };
+const reliefBounds = [100, 15, 140, 45];
+const reliefUrl = `${import.meta.env.BASE_URL}geography/east-asia-relief.webp`;
 const hover = ref<{ lon: number; lat: number; value: number } | null>(null);
 const colors = computed(() => palettes[props.grid.variable] || palettes.t2m);
 const scale = computed(() => ({ min: props.grid.scale_min ?? props.grid.min, max: props.grid.scale_max ?? props.grid.max }));
@@ -29,6 +37,13 @@ const camera = computed(() => {
 });
 const x = (lon: number) => ((lon - camera.value.west) / (camera.value.east - camera.value.west)) * 1000;
 const y = (lat: number) => ((camera.value.north - lat) / (camera.value.north - camera.value.south)) * 600;
+const reliefAvailable = computed(() => region.value.west >= reliefBounds[0] && region.value.east <= reliefBounds[2] && region.value.south >= reliefBounds[1] && region.value.north <= reliefBounds[3]);
+const showRelief = computed(() => basemap.value === 'relief' && reliefAvailable.value && !reliefError.value);
+const waterPaths = (features: WaterFeature[], closed: boolean) => features
+	.filter((f) => f.bounds[2] >= camera.value.west && f.bounds[0] <= camera.value.east && f.bounds[3] >= camera.value.south && f.bounds[1] <= camera.value.north)
+	.map((f) => f.lines.map((line) => line.map(([lon, lat], i) => `${i ? 'L' : 'M'}${x(lon).toFixed(2)},${y(lat).toFixed(2)}`).join('') + (closed ? 'Z' : '')).join(''));
+const rivers = computed(() => waterPaths(water.value.rivers, false));
+const lakes = computed(() => waterPaths(water.value.lakes, true));
 const coverage = computed(() => ({
 	x: x(region.value.west),
 	y: y(region.value.north),
@@ -123,13 +138,21 @@ function select(event: MouseEvent) {
 	if (p) emit('select', { lon: p.lon, lat: p.lat });
 }
 onMounted(async () => {
-	try {
+	const loadLand = async () => { try {
 		const response = await fetch(`${import.meta.env.BASE_URL}land-50m.json`);
 		if (!response.ok) throw new Error('map');
 		land.value = (await response.json()).polygons;
 	} catch {
 		landError.value = true;
-	}
+	} };
+	const loadWater = async () => { try {
+		const response = await fetch(`${import.meta.env.BASE_URL}geography/east-asia-water.json`);
+		if (!response.ok) throw new Error('water');
+		water.value = await response.json();
+	} catch {
+		waterError.value = true;
+	} };
+	await Promise.all([loadLand(), loadWater()]);
 });
 </script>
 
@@ -161,6 +184,10 @@ onMounted(async () => {
 			<g clip-path="url(#map-boundary)">
 				<rect width="1000" height="600" fill="#101e2b" />
 				<path v-for="(path, i) in landPaths" :key="`land-${i}`" :d="path" class="map-land" />
+				<image v-if="showRelief" class="map-relief" :href="reliefUrl" :x="x(reliefBounds[0])" :y="y(reliefBounds[3])"
+					:width="x(reliefBounds[2]) - x(reliefBounds[0])" :height="y(reliefBounds[1]) - y(reliefBounds[3])"
+					preserveAspectRatio="none" @load="reliefLoaded = true" @error="reliefError = true" />
+				<path v-for="(path, i) in lakes" :key="`lake-${i}`" :d="path" class="map-lake" fill-rule="evenodd" />
 				<g class="coordinate-grid">
 					<line v-for="lon in longitudeLines" :key="lon" :x1="x(lon)" :x2="x(lon)" y1="0" y2="600" />
 					<line v-for="lat in latitudeLines" :key="lat" x1="0" x2="1000" :y1="y(lat)" :y2="y(lat)" />
@@ -175,6 +202,7 @@ onMounted(async () => {
 					:style="{ imageRendering: smooth ? 'auto' : 'pixelated' }"
 				/>
 				<path v-for="(path, i) in landPaths" :key="`coast-${i}`" :d="path" class="map-coast" />
+				<path v-for="(path, i) in rivers" :key="`river-${i}`" :d="path" class="map-river" />
 				<rect :x="coverage.x" :y="coverage.y" :width="coverage.width" :height="coverage.height" class="coverage-boundary" />
 				<text :x="coverage.x + 12" :y="coverage.y + 23" class="coverage-label">预报覆盖范围 · {{ grid.lat.length }} × {{ grid.lon.length }}</text>
 				<g v-for="city in labels" :key="city.name" :transform="`translate(${x(city.lon)},${y(city.lat)})`" class="city-label">
@@ -205,6 +233,11 @@ onMounted(async () => {
 			<button :aria-pressed="smooth" :class="{ active: smooth }" @click="smooth = true">连续显示</button
 			><button :aria-pressed="!smooth" :class="{ active: !smooth }" @click="smooth = false">原始网格</button>
 		</div>
+		<div class="map-basemap" role="group" aria-label="地理底图">
+			<span>底图</span><button :aria-pressed="showRelief" :class="{ active: showRelief }" :disabled="!reliefAvailable || reliefError" @click="basemap = 'relief'">地形</button>
+			<button :aria-pressed="!showRelief" :class="{ active: !showRelief }" @click="basemap = 'plain'">简图</button>
+		</div>
+		<span v-if="reliefError || waterError" class="map-material-status" role="status">{{ reliefError ? '地形加载失败，已显示简图' : '水系资料加载失败' }}</span>
 		<div class="map-probe">
 			<Aim /><span v-if="hover"
 				>{{ number(hover.lon, 2) }}°E / {{ number(hover.lat, 2) }}°N <strong>{{ number(hover.value, 2) }} {{ grid.unit }}</strong></span
@@ -224,8 +257,8 @@ onMounted(async () => {
 			</div>
 		</div>
 		<div class="map-attribution">
-			{{ landError ? '地理底图加载失败' : 'Natural Earth · 1:50m 海岸线'
-			}}<span>{{ smooth ? '连续显示为插值渲染，查询使用原始格点' : '原始网格显示' }}</span>
+			<span><a v-if="showRelief && reliefLoaded" href="https://www.earthdata.nasa.gov/centers/gibs" target="_blank" rel="noopener noreferrer">NASA Blue Marble · 静态地形</a><template v-if="showRelief && reliefLoaded"> / </template><a href="https://www.naturalearthdata.com/about/terms-of-use/" target="_blank" rel="noopener noreferrer">Natural Earth</a>{{ landError ? ' · 海岸线加载失败' : '' }}</span>
+			<span>{{ smooth ? '连续显示为插值渲染，查询使用原始格点' : '原始网格显示' }}</span>
 		</div>
 	</div>
 </template>

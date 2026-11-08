@@ -9,3 +9,7 @@ fs.mkdirSync(target, { recursive: true });
 for (const name of ['land-50m.json', 'weather-mark.svg']) {
   fs.copyFileSync(path.join(root, 'weather-public', name), path.join(target, name));
 }
+fs.mkdirSync(path.join(target, 'geography'), { recursive: true });
+for (const name of ['east-asia-relief.webp', 'east-asia-water.json', 'sources.json']) {
+  fs.copyFileSync(path.join(root, 'weather-public/geography', name), path.join(target, 'geography', name));
+}

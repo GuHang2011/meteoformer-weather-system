@@ -22,6 +22,14 @@ const base = process.env.DEMO_URL || 'http://127.0.0.1:4176/meteoformer-weather-
     assert.equal(await page.getByRole('button', { name: /管理员登录/ }).count(), 0);
     assert((await page.locator('.sidebar-status').innerText()).includes('演示快照已加载'));
     report.checks.push('public demo label; no login; snapshot status');
+    await page.getByRole('link', { name: 'NASA Blue Marble · 静态地形', exact: true }).waitFor();
+    assert(await page.locator('.map-river').count() > 0);
+    assert(await page.locator('.map-lake').count() > 0);
+    await page.getByRole('button', { name: '简图', exact: true }).click();
+    assert.equal(await page.locator('.map-relief').count(), 0);
+    await page.getByRole('button', { name: '地形', exact: true }).click();
+    await page.locator('.map-relief').waitFor();
+    report.checks.push('local NASA terrain, Natural Earth rivers/lakes, attribution and basemap switching');
     for (const label of ['降水', '风速', '湿度', '气压', '气温']) {
       await page.getByRole('button', { name: new RegExp('^' + label) }).click();
       await page.waitForTimeout(80);
@@ -67,27 +75,40 @@ const base = process.env.DEMO_URL || 'http://127.0.0.1:4176/meteoformer-weather-
     report.checks.push('valid NetCDF and selected-lead PNG download');
     await page.getByRole('slider', { name: '预报时效' }).fill('1');
     await page.waitForTimeout(100);
-    for (const [width, height] of [[1600,1100], [1440,1000], [768,1000], [390,844], [320,740]]) {
+    for (const [width, height] of [[1600,1100], [1440,900], [768,1000], [390,844], [320,740]]) {
       await page.setViewportSize({ width, height });
       await page.evaluate(() => window.scrollTo(0, 0));
       assert(!(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)), `overflow: ${width}`);
+      if (width >= 1440) {
+        const timeline = await page.locator('.timeline').boundingBox();
+        assert(timeline.y + timeline.height <= height, `forecast timeline below viewport: ${width}`);
+      }
       await page.screenshot({ path: path.join(out, `workspace-${width}.png`), fullPage: width < 500 });
     }
     report.checks.push('responsive at 320/390/768/1440/1600 px');
     await page.setViewportSize({ width: 1440, height: 1000 });
-    for (const name of ['气象数据', '模型实验室', '天气告警']) {
+    for (const name of ['气象数据', '训练记录', '阈值告警']) {
       await page.getByRole('button', { name, exact: true }).click();
       await page.screenshot({ path: path.join(out, `${name}.png`), fullPage: true });
       if (name === '气象数据') await download(page.getByRole('button', { name: '导出', exact: true }), 'dataset.nc', Buffer.from('CDF'));
-      if (name === '模型实验室') {
+      if (name === '训练记录') {
         assert((await page.locator('main').innerText()).includes('90,926'));
         assert.equal(await page.getByRole('button', { name: '开始训练' }).count(), 0);
       }
     }
     await page.reload({ waitUntil: 'networkidle' });
-    assert.equal(await page.locator('h1').innerText(), '天气告警');
+    assert.equal(await page.locator('h1').innerText(), '阈值告警');
     assert.deepEqual(apiRequests, []); assert.deepEqual(errors, []); assert.deepEqual(failedResponses, []);
     report.checks.push('all pages and hash refresh; no backend requests, HTTP failures or runtime errors');
+    const fallback = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await fallback.route('**/geography/east-asia-relief.webp', route => route.abort());
+    await fallback.goto(base, { waitUntil: 'networkidle' });
+    await fallback.getByText('地形加载失败，已显示简图', { exact: true }).waitFor();
+    assert.equal(await fallback.getByRole('button', { name: '简图', exact: true }).getAttribute('aria-pressed'), 'true');
+    assert(await fallback.locator('.map-coast').count() > 0);
+    await fallback.locator('.point-weather strong').waitFor();
+    await fallback.close();
+    report.checks.push('terrain download failure falls back to a usable geographic map');
     report.status = 'passed';
   } catch (error) {
     report.status = 'failed'; report.error = error.message;
