@@ -27,8 +27,8 @@ import './weather.css';
 import './synoptic.css';
 
 const navigation = [
-	{ id: 'overview', label: '预报工作台', icon: Odometer, subtitle: '查看区域预报' },
-	{ id: 'forecast', label: '预报与查询', icon: DataLine, subtitle: '选择时效和要素' },
+	{ id: 'overview', label: '预报工作台', icon: Odometer, subtitle: '区域天气分布与未来 24 小时趋势' },
+	{ id: 'forecast', label: '预报与查询', icon: DataLine, subtitle: '选择预报批次，查看要素与格点数据' },
 	{ id: 'data', label: '气象数据', icon: FolderOpened, subtitle: '数据来源与质量' },
 	{ id: 'training', label: '训练记录', icon: Cpu, subtitle: '训练任务与评估结果' },
 	{ id: 'warnings', label: '阈值告警', icon: Bell, subtitle: '查看达到阈值的天气过程' },
@@ -330,7 +330,7 @@ onUnmounted(() => {
 		<div class="workspace">
 			<header class="topbar">
 				<div class="breadcrumb">
-					预报工作区 <span>/</span> <strong>{{ currentPage.label }}</strong>
+					<span class="desktop-context">区域气象预测</span><span class="mobile-brand">MeteoFormer</span><span class="breadcrumb-divider">/</span><strong>{{ currentPage.label }}</strong>
 				</div>
 				<div class="topbar-actions">
 					<span class="timezone">北京时间 UTC+8</span
@@ -342,17 +342,17 @@ onUnmounted(() => {
 				</div>
 			</header>
 			<main :class="{ 'forecast-main': page === 'overview' || page === 'forecast' }">
-				<div v-if="isDemo" class="demo-banner" role="note">
-					<span class="demo-badge">合成数据演示</span>
-					<span>只读快照 · 非实时预报<span class="demo-snapshot-date" v-if="overview.server_time"> · {{ overview.server_time.slice(0, 10) }}</span></span>
-				</div>
 				<div class="page-heading">
 					<div>
 						<h1>{{ currentPage.label }}</h1>
-						<p v-if="page !== 'overview' && page !== 'forecast'">{{ currentPage.subtitle }}</p>
+						<p>{{ currentPage.subtitle }}</p>
 					</div>
 					<span class="page-date" v-if="forecast && (page === 'overview' || page === 'forecast')">起报 {{ date(forecast.init_time) }}<small>北京时间 · 预报至 +24 h</small></span>
 					<span class="page-date" v-else>{{ date(overview.server_time) }}<small>{{ isDemo ? '快照时间 · 北京时间' : '服务时间 · 北京时间' }}</small></span>
+				</div>
+				<div v-if="isDemo" class="demo-banner" role="note">
+					<span class="demo-badge">合成数据演示</span><span>只读快照 · 非实时预报</span>
+					<span class="demo-snapshot-date" v-if="overview.server_time">快照 {{ overview.server_time.slice(0, 10) }}</span>
 				</div>
 				<div v-if="error" class="notice error" role="alert">
 					<Warning /><span>{{ error }}</span
@@ -369,14 +369,14 @@ onUnmounted(() => {
 					<section class="panel forecast-controls">
 						<div class="control-row">
 							<label class="grow"
-								>当前预报<select aria-label="已发布预报" v-model="selected" :disabled="!overview.forecasts.length">
+								><span class="control-label">当前预报</span><select aria-label="已发布预报" v-model="selected" :disabled="!overview.forecasts.length">
 									<option value="" disabled>暂无预报</option>
 									<option v-for="f in overview.forecasts" :key="f.id" :value="f.id">
-										{{ date(f.init_time) }} 起报 · {{ f.engine_label }} · {{ sourceName(f.source) }} · {{ f.id.slice(0, 6) }}
+										{{ date(f.init_time) }} · {{ f.engine_label }} · {{ sourceName(f.source) }}
 									</option>
 								</select></label
-							><button class="secondary" :disabled="!forecast || isBusy" @click="download(`/forecast/download?forecast_id=${selected}`)">
-								<Download />NetCDF 下载
+							><button class="secondary" aria-label="NetCDF 下载" :disabled="!forecast || isBusy" @click="download(`/forecast/download?forecast_id=${selected}`)">
+								<Download /><span>NetCDF</span>
 							</button>
 						</div>
 						<details v-if="admin || !overview.forecasts.length" class="generate-details" :open="!overview.forecasts.length">
@@ -402,7 +402,7 @@ onUnmounted(() => {
 								><label v-if="engine === 'meteoformer'">集合成员<input type="number" v-model.number="members" min="1" max="8" required /></label
 								><button class="primary" :disabled="!admin || !datasetId || isBusy || running">生成预报 <ArrowRight /></button>
 							</form>
-							<p class="help">持续性基线将最新观测保持 24 小时，用于比较；MeteoFormer 需要先完成真实训练。集合概率为扰动样本频率，尚未经概率校准。</p>
+							<p class="help">持续性基线将最新观测保持 24 小时，用于比较；MeteoFormer 需先完成模型训练。集合概率为扰动样本频率，尚未经概率校准。</p>
 						</details>
 					</section>
 					<div v-if="!forecast" class="empty panel">
@@ -417,15 +417,15 @@ onUnmounted(() => {
 								<div class="section-heading">
 									<div>
 										<h2>区域气象场</h2>
-										<p>{{ sourceName(forecast.source) }} · {{ forecast.engine_label }}<template v-if="grid"> · {{ grid.lon.length }} × {{ grid.lat.length }} 网格</template></p>
+										<p>{{ sourceName(forecast.source) }}<template v-if="grid"> · {{ grid.lon.length }} × {{ grid.lat.length }} 网格</template></p>
 									</div>
 									<button
-										class="icon-button"
+										class="secondary image-download"
 										aria-label="下载当前气象图片"
 										:disabled="isBusy"
 										@click="download(`/forecast/image?forecast_id=${selected}&variable=${variable}&lead=${lead}`)"
 									>
-										<Download />
+										<Download /><span>导出图片</span>
 									</button>
 								</div>
 								<div class="variable-tabs" role="group" aria-label="气象要素">
@@ -442,17 +442,15 @@ onUnmounted(() => {
 								<WeatherMap v-if="grid" :grid="grid" :point="point" @select="mapPoint" />
 								<div v-else class="empty">气象场加载中…</div>
 								<div class="timeline">
-									<span>预报时效</span><input aria-label="预报时效" type="range" min="1" max="24" v-model.number="lead" /><strong
-										>+{{ String(lead).padStart(2, '0') }} h</strong
-									>
+									<span>预报时效</span><div class="timeline-track"><input aria-label="预报时效" type="range" min="1" max="24" v-model.number="lead" /><div class="timeline-ticks" aria-hidden="true"><span>+1 h</span><span>+6 h</span><span>+12 h</span><span>+18 h</span><span>+24 h</span></div></div><strong>+{{ String(lead).padStart(2, '0') }} h</strong>
 								</div>
-								<p class="map-footnote">地图按地理坐标显示预报覆盖范围；海岸线用于位置参照，不代表行政区界。</p>
+								<p class="map-footnote">色标在同一批次内保持一致；海岸线为地理参照，不代表行政区界。</p>
 							</section>
 							<section class="panel point-panel">
 								<div class="section-heading">
 									<div>
 										<h2>单点预报</h2>
-										<p>按经纬度查看逐小时天气</p>
+										<p>点击地图，或输入经纬度</p>
 									</div>
 									<Location class="section-icon" />
 								</div>
@@ -484,7 +482,7 @@ onUnmounted(() => {
 											<dd>{{ number(pointResult.hourly[lead - 1].msl) }} hPa</dd>
 										</div>
 										<div v-if="pointResult.hourly[lead - 1].rain_probability !== undefined">
-											<dt>≥1 mm 降水频率</dt>
+											<dt>降水频率 <small>≥1 mm</small></dt>
 											<dd>{{ number(pointResult.hourly[lead - 1].rain_probability) }} %</dd>
 										</div>
 										<div v-if="pointResult.hourly[lead - 1].temperature_p10 !== undefined">
@@ -515,7 +513,7 @@ onUnmounted(() => {
 						</article>
 						<article class="metric">
 							<span><WindPower />最大近地风速</span><strong>{{ number(forecast.summary.wind_max) }}<small>m/s</small></strong>
-							<p>10 米高度 · 合成风速</p>
+							<p>10 米高度 · 区域格点峰值</p>
 						</article>
 						<article class="metric alert-metric">
 							<span><Bell />本次预报告警</span><strong>{{ forecast.warning_count }}<small>类天气过程</small></strong
@@ -526,7 +524,7 @@ onUnmounted(() => {
 						<section v-if="pointResult" class="panel hourly-panel">
 							<div class="section-heading">
 								<div>
-									<h2>24 小时变化趋势</h2>
+									<h2>格点逐小时预报</h2>
 									<p>气温与逐小时降水 · 北京时间</p>
 								</div>
 								<span class="chart-key">● 气温 <span>▰ 降水</span></span>
@@ -570,14 +568,14 @@ onUnmounted(() => {
 						<section class="panel">
 							<div class="section-heading">
 								<div>
-									<h2>导入气象数据</h2>
+									<h2>{{ isDemo ? '演示数据' : '导入气象数据' }}</h2>
 									<p>NetCDF 格式 · 最大 100 MB</p>
 								</div>
 								<FolderOpened class="section-icon" />
 							</div>
 							<div v-if="isDemo" class="demo-feature-note">
 								<strong>合成数据下载</strong>
-								<p>本次快照包含 480 小时合成数据，可在下方下载 NetCDF。导入区域资料需运行本地完整系统。</p>
+								<p>480 小时合成资料，可在下方下载 NetCDF 并在本地复现。实际资料导入需运行完整系统。</p>
 								<a :href="`${repositoryUrl}#本地运行完整系统`" target="_blank" rel="noopener noreferrer">查看安装与导入说明 ↗</a>
 							</div>
 							<form v-else @submit.prevent="importData" class="stack-form">
@@ -617,7 +615,7 @@ onUnmounted(() => {
 							<ul>
 								<li>逐小时连续时间，至少 12 小时</li>
 								<li>缺失不超过 5%，仅填充短时内部缺口</li>
-								<li>70% / 15% / 15% 时间顺序划分</li>
+								<li>按时间划分：训练 70% · 验证 15% · 测试 15%</li>
 								<li>标准化参数只从训练分区计算</li>
 							</ul>
 							<button v-if="!isDemo" class="secondary" :disabled="!admin || isBusy" @click="createDemo">创建合成演示数据</button>
@@ -630,7 +628,7 @@ onUnmounted(() => {
 								<h2>
 									数据集目录 <span class="count">{{ overview.datasets.length }}</span>
 								</h2>
-								<p>{{ isDemo ? '公开的合成实验数据 · 可下载 NetCDF 复现' : '网格数据保存在 Zarr，索引与元信息持久化保存' }}</p>
+								<p>{{ isDemo ? '合成实验资料 · 下载后可在本地复现' : '查看时间范围、网格覆盖与数据质量' }}</p>
 							</div>
 						</div>
 						<div v-if="!overview.datasets.length" class="empty">还没有数据集。管理员可在上方导入或创建演示数据。</div>
@@ -642,7 +640,7 @@ onUnmounted(() => {
 								</h3>
 								<p>{{ date(d.start) }} — {{ date(d.end) }} · {{ d.hours }} 小时 · {{ d.shape.join(' × ') }} 网格</p>
 								<p>
-									范围 {{ d.bounds.map((x: number) => number(x, 2)).join(' / ') }} ·
+									经度 {{ number(d.bounds[0], 2) }}° 至 {{ number(d.bounds[2], 2) }}° · 纬度 {{ number(d.bounds[1], 2) }}° 至 {{ number(d.bounds[3], 2) }}° ·
 									{{ d.trainable ? '可构建 24 小时训练窗口' : '仅满足推理，训练时长不足' }}
 								</p>
 								<div class="dataset-notes" v-if="d.notes.length">{{ d.notes.join('；') }}</div>
@@ -678,10 +676,7 @@ onUnmounted(() => {
 								{{ running ? '训练进行中' : '开始训练' }} <ArrowRight />
 							</button>
 						</form>
-						<p class="help">
-							按 1 → 6 → 24 小时进行课程学习。窗口按时间分区构造，使用
-							AdamW、梯度裁剪和验证集早停。原型按上限抽取等间隔训练窗口，不能替代完整资料训练。
-						</p>
+						<details class="method-details"><summary>训练方法与适用范围</summary><p class="help">按 1 → 6 → 24 小时进行课程学习，使用 AdamW、梯度裁剪和验证集早停。窗口在各时间分区内构造，并按上限等间隔抽取；结果仅代表当前数据集。</p></details>
 						<p class="help" v-if="!admin && !isDemo">需管理员登录后启动训练。</p>
 					</section>
 					<section class="panel" v-for="job in overview.jobs" :key="job.id">
@@ -745,6 +740,7 @@ onUnmounted(() => {
 									</tbody>
 								</table>
 							</div>
+							<p class="help">RMSE、MAE 衡量预测误差，越小越好；ACC 衡量距平相关性，越接近 1 越好。</p>
 							<p class="help">
 								≥1 mm 降水：CSI {{ number(job.metrics.model.precipitation.csi, 3) }} / POD {{ number(job.metrics.model.precipitation.pod, 3) }} / FAR
 								{{ number(job.metrics.model.precipitation.far, 3) }}。{{ job.metrics.crps_note }}。
@@ -767,7 +763,8 @@ onUnmounted(() => {
 							</div>
 							<span class="tag">阈值记录</span>
 						</div>
-						<form class="control-row" @submit.prevent="saveThresholds">
+						<dl v-if="isDemo" class="threshold-summary"><div><dt>短时强降水</dt><dd>{{ thresholds.precip }} <small>mm/h</small></dd></div><div><dt>大风</dt><dd>{{ thresholds.wind }} <small>m/s</small></dd></div><div><dt>高温</dt><dd>{{ thresholds.temperature }} <small>°C</small></dd></div></dl>
+						<form v-else class="control-row" @submit.prevent="saveThresholds">
 							<label class="grow"
 								>短时强降水 (mm/h)<input
 									type="number"
@@ -790,7 +787,7 @@ onUnmounted(() => {
 									:disabled="!admin" /></label
 							><button v-if="!isDemo" class="primary" :disabled="!admin || isBusy">保存阈值</button>
 						</form>
-						<p class="help">{{ isDemo ? '这里展示生成本次预报时使用的阈值。在线演示不生成或发布告警。' : '修改仅影响后续预报。这里的告警不采用官方预警等级，不对外自动发布通知。' }}</p>
+						<p class="help">{{ isDemo ? '快照中的阈值设置。在线演示不生成或发布告警。' : '修改仅影响后续预报。这里的告警不采用官方预警等级，不对外自动发布通知。' }}</p>
 					</section>
 					<section class="panel">
 						<div class="section-heading">

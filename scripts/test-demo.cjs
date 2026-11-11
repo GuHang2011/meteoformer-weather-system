@@ -18,6 +18,7 @@ const base = process.env.DEMO_URL || 'http://127.0.0.1:4176/meteoformer-weather-
     await page.goto(base, { waitUntil: 'networkidle' });
     await page.locator('.map-coast').first().waitFor();
     await page.locator('.point-weather strong').waitFor();
+    await page.evaluate(() => document.fonts.ready);
     assert((await page.locator('.demo-banner').innerText()).includes('只读快照'));
     assert.equal(await page.getByRole('button', { name: /管理员登录/ }).count(), 0);
     assert((await page.locator('.sidebar-status').innerText()).includes('演示快照已加载'));
@@ -75,17 +76,32 @@ const base = process.env.DEMO_URL || 'http://127.0.0.1:4176/meteoformer-weather-
     report.checks.push('valid NetCDF and selected-lead PNG download');
     await page.getByRole('slider', { name: '预报时效' }).fill('1');
     await page.waitForTimeout(100);
-    for (const [width, height] of [[1600,1100], [1440,900], [768,1000], [390,844], [320,740]]) {
+    for (const [width, height] of [[1600,1100], [1440,900], [1024,900], [768,1000], [390,844], [320,740]]) {
       await page.setViewportSize({ width, height });
+      await page.waitForTimeout(120);
       await page.evaluate(() => window.scrollTo(0, 0));
       assert(!(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)), `overflow: ${width}`);
+      const canvas = await page.locator('.map-canvas').boundingBox();
+      const coverage = await page.locator('.coverage-boundary').boundingBox();
+      assert(coverage.x >= canvas.x - 1 && coverage.y >= canvas.y - 1 && coverage.x + coverage.width <= canvas.x + canvas.width + 1 && coverage.y + coverage.height <= canvas.y + canvas.height + 1, `forecast coverage clipped: ${width}`);
+      if (width === 1440 || width === 390) {
+        await page.locator('.map-canvas').scrollIntoViewIfNeeded();
+        const target = await page.locator('.coverage-boundary').boundingBox();
+        await page.mouse.click(target.x + target.width * 0.35, target.y + target.height * 0.35);
+        const lon = snapshot.data.lon[0] + (snapshot.data.lon.at(-1) - snapshot.data.lon[0]) * 0.35;
+        const lat = snapshot.data.lat.at(-1) - (snapshot.data.lat.at(-1) - snapshot.data.lat[0]) * 0.35;
+        assert.equal(Number(await page.getByRole('spinbutton', { name: '经度', exact: true }).inputValue()), snapshot.data.lon[nearest(snapshot.data.lon, lon)]);
+        assert.equal(Number(await page.getByRole('spinbutton', { name: '纬度', exact: true }).inputValue()), snapshot.data.lat[nearest(snapshot.data.lat, lat)]);
+        await page.locator('.point-weather strong').waitFor();
+        await page.evaluate(() => window.scrollTo(0, 0));
+      }
       if (width >= 1440) {
         const timeline = await page.locator('.timeline').boundingBox();
         assert(timeline.y + timeline.height <= height, `forecast timeline below viewport: ${width}`);
       }
       await page.screenshot({ path: path.join(out, `workspace-${width}.png`), fullPage: width < 500 });
     }
-    report.checks.push('responsive at 320/390/768/1440/1600 px');
+    report.checks.push('responsive at 320/390/768/1024/1440/1600 px; full forecast coverage remains visible');
     await page.setViewportSize({ width: 1440, height: 1000 });
     for (const name of ['气象数据', '训练记录', '阈值告警']) {
       await page.getByRole('button', { name, exact: true }).click();

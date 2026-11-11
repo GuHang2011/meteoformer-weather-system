@@ -34,7 +34,7 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
   }
   report.checks.push('320 / 390 / 768 / 1024 / 1440 / 1600 widths without horizontal overflow');
   await page.setViewportSize({width:1440,height:1000});
-  for(const nav of ['气象数据','模型实验室','天气告警']){
+  for(const nav of ['气象数据','训练记录','阈值告警']){
    await page.getByRole('button',{name:nav,exact:true}).click();
    await page.evaluate(()=>window.scrollTo(0,0));
    await page.screenshot({path:path.join(out,nav+'.png'),fullPage:true});
