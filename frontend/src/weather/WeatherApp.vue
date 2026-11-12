@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import {
 	Cloudy,
 	Odometer,
@@ -8,6 +8,7 @@ import {
 	Cpu,
 	Bell,
 	ArrowRight,
+	ArrowLeft,
 	Download,
 	Refresh,
 	Location,
@@ -22,7 +23,8 @@ import {
 import WeatherMap from './SynopticMap.vue';
 import ForecastChart from './ForecastChart.vue';
 import { api, post, date, number, sourceName } from './api';
-import { isDemo, demoDownload, repositoryUrl } from './demo';
+import { isDemo, repositoryUrl } from './demo';
+import { useDownload } from './useDownload';
 import './weather.css';
 import './synoptic.css';
 
@@ -36,6 +38,12 @@ const navigation = [
 const initialPage = location.hash.slice(1);
 const page = ref(navigation.some((n) => n.id === initialPage) ? initialPage : 'overview');
 const currentPage = computed(() => navigation.find((n) => n.id === page.value)!);
+const pageHeading = ref<HTMLElement>();
+const loginDialog = ref<HTMLDialogElement>();
+const hourlyHeading = ref<HTMLElement>();
+const { state: downloadState, filename: downloadFilename, message: downloadMessage, active: downloading,
+	percent: downloadPercent, size: downloadSize, title: downloadTitle, start: download,
+	cancel: cancelDownload, close: closeDownload, retry: retryDownload } = useDownload();
 const admin = ref(false),
 	loginOpen = ref(false),
 	password = ref('');
@@ -44,6 +52,8 @@ const error = ref(''),
 	busy = ref(''),
 	connected = ref(false),
 	loading = ref(true);
+const loadError = ref(''), mapError = ref(''), pointError = ref('');
+const mapLoading = ref(false), pointLoading = ref(false);
 const overview = ref<any>({ datasets: [], forecasts: [], jobs: [], thresholds: { precip: 20, wind: 17, temperature: 35 } });
 const health = ref<any>({}),
 	warnings = ref<any[]>([]),
@@ -54,12 +64,13 @@ const variable = ref('t2m'),
 	lead = ref(1),
 	point = ref({ lon: 120.5, lat: 31.5 });
 const variables = [
-	{ id: 't2m', label: '气温', unit: '°C' },
-	{ id: 'precip', label: '降水', unit: 'mm/h' },
-	{ id: 'wind', label: '风速', unit: 'm/s' },
-	{ id: 'rh', label: '湿度', unit: '%' },
-	{ id: 'msl', label: '气压', unit: 'hPa' },
+	{ id: 't2m', label: '气温', fullLabel: '2 米气温', unit: '°C' },
+	{ id: 'precip', label: '降水', fullLabel: '小时降水', unit: 'mm/h' },
+	{ id: 'wind', label: '风速', fullLabel: '10 米风速', unit: 'm/s' },
+	{ id: 'rh', label: '湿度', fullLabel: '相对湿度', unit: '%' },
+	{ id: 'msl', label: '气压', fullLabel: '海平面气压', unit: 'hPa' },
 ];
+const currentVariable = computed(() => variables.find(v => v.id === variable.value)!);
 const datasetId = ref(''),
 	engine = ref('persistence'),
 	modelId = ref(''),
@@ -93,16 +104,31 @@ const running = computed(() => overview.value.jobs.some((j: any) => ['queued', '
 const isBusy = computed(() => Boolean(busy.value));
 const selectedDataset = computed(() => overview.value.datasets.find((d: any) => d.id === datasetId.value));
 let interval: ReturnType<typeof setInterval> | undefined;
+let polling = false;
 let mapRequest = 0,
 	pointRequest = 0;
 const hashChanged = () => {
 	const value = location.hash.slice(1);
 	if (navigation.some((n) => n.id === value)) page.value = value;
 };
-watch(page, (v) => {
+watch(page, async (v) => {
 	location.hash = v;
 	error.value = '';
 	notice.value = '';
+	document.title = `${currentPage.value.label} · MeteoFormer`;
+	await nextTick();
+	window.scrollTo({ top: 0, behavior: 'auto' });
+	pageHeading.value?.focus({ preventScroll: true });
+});
+watch(loginOpen, async (open) => {
+	if (open) {
+		error.value = '';
+		await nextTick();
+		loginDialog.value?.showModal();
+	} else {
+		loginDialog.value?.close();
+		password.value = '';
+	}
 });
 watch(datasetId, () => {
 	modelId.value = '';
@@ -125,22 +151,46 @@ async function action(label: string, task: () => Promise<void>) {
 	}
 }
 async function refresh() {
-	const [data, alerts, session, status] = await Promise.all([
-		api('/overview'),
-		api('/warning/list?active_only=false'),
-		api('/auth/session'),
-		api('/health'),
-	]);
-	overview.value = data;
-	warnings.value = alerts;
-	admin.value = session.role === 'admin';
-	health.value = status;
-	connected.value = true;
-	if (!datasetId.value && data.datasets.length) datasetId.value = data.datasets[0].id;
-	if (!selected.value && data.forecasts.length) selected.value = data.forecasts[0].id;
+	try {
+		const [data, alerts, session, status] = await Promise.all([
+			api('/overview'),
+			api('/warning/list?active_only=false'),
+			api('/auth/session'),
+			api('/health'),
+		]);
+		overview.value = data;
+		warnings.value = alerts;
+		admin.value = session.role === 'admin';
+		health.value = status;
+		connected.value = true;
+		loadError.value = '';
+		if (!datasetId.value && data.datasets.length) datasetId.value = data.datasets[0].id;
+		if (!data.forecasts.some((f: any) => f.id === selected.value)) selected.value = data.forecasts[0]?.id || '';
+	} catch (e) {
+		connected.value = false;
+		throw e;
+	}
+}
+async function connect() {
+	loading.value = true;
+	loadError.value = '';
+	try {
+		await refresh();
+		thresholds.value = { ...overview.value.thresholds };
+	}
+	catch (e: any) { loadError.value = e.message || '连接失败，请稍后重试。'; }
+	finally { loading.value = false; }
+}
+async function reloadData() {
+	if (loadError.value) return connect();
+	const previous = selected.value;
+	await refresh();
+	if (previous === selected.value) await Promise.all([loadMap(), queryPoint()]);
 }
 async function loadMap() {
 	const sequence = ++mapRequest;
+	mapError.value = '';
+	mapLoading.value = Boolean(selected.value);
 	if (!selected.value) {
 		grid.value = null;
 		return;
@@ -151,19 +201,25 @@ async function loadMap() {
 	} catch (e: any) {
 		if (sequence === mapRequest) {
 			grid.value = null;
-			error.value = e.message;
+			mapError.value = e.message || '请检查连接后重试。';
 		}
+	} finally {
+		if (sequence === mapRequest) mapLoading.value = false;
 	}
 }
 async function queryPoint() {
 	const sequence = ++pointRequest;
 	pointResult.value = null;
+	pointError.value = '';
+	pointLoading.value = Boolean(selected.value);
 	if (!selected.value) return;
 	try {
 		const result = await api(`/point?forecast_id=${selected.value}&lon=${point.value.lon}&lat=${point.value.lat}`);
 		if (sequence === pointRequest) pointResult.value = result;
 	} catch (e: any) {
-		if (sequence === pointRequest) error.value = e.message;
+		if (sequence === pointRequest) pointError.value = e.message;
+	} finally {
+		if (sequence === pointRequest) pointLoading.value = false;
 	}
 }
 watch([selected, variable, lead], loadMap);
@@ -176,7 +232,9 @@ watch(selected, () => {
 	}
 });
 async function mapPoint(value: { lon: number; lat: number }) {
-	point.value = value;
+	const [west, south, east, north] = forecast.value.bounds;
+	// Keep rounded edge coordinates within the actual grid domain.
+	point.value = { lon: Math.max(west, Math.min(east, Number(value.lon.toFixed(4)))), lat: Math.max(south, Math.min(north, Number(value.lat.toFixed(4)))) };
 	error.value = '';
 	await queryPoint();
 }
@@ -247,47 +305,24 @@ async function acknowledge(key: string) {
 		await refresh();
 	});
 }
-async function download(path: string) {
-	await action('正在准备下载', async () => {
-		const demoFile = isDemo ? await demoDownload(path) : null;
-		const res = await fetch(demoFile?.url || `/api${path}`);
-		if (!res.ok) {
-			const data = await res.json().catch(() => ({}));
-			throw new Error(data.detail || '下载失败');
-		}
-		const blob = await res.blob(),
-			url = URL.createObjectURL(blob),
-			a = document.createElement('a');
-		a.href = url;
-		a.download = demoFile?.filename || res.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1] || 'forecast.nc';
-		document.body.append(a);
-		a.click();
-		a.remove();
-		setTimeout(() => URL.revokeObjectURL(url), 1000);
-	});
+function viewHourly() {
+	hourlyHeading.value?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+	hourlyHeading.value?.focus({ preventScroll: true });
 }
 const statuses: Record<string, string> = { queued: '排队中', running: '训练中', completed: '已完成', failed: '失败', interrupted: '已中断' };
 onMounted(async () => {
 	window.addEventListener('hashchange', hashChanged);
-	try {
-		await refresh();
-		thresholds.value = {
-			precip: overview.value.thresholds.precip,
-			wind: overview.value.thresholds.wind,
-			temperature: overview.value.thresholds.temperature,
-		};
-	} catch (e: any) {
-		error.value = (isDemo ? '无法加载演示快照，请刷新重试。' : '无法连接气象服务，请启动后端后重试。') + e.message;
-		connected.value = false;
-	} finally {
-		loading.value = false;
-	}
+	document.title = `${currentPage.value.label} · MeteoFormer`;
+	await connect();
 	interval = setInterval(async () => {
-		if (running.value && !isBusy.value) {
+		if (running.value && !isBusy.value && !polling) {
+			polling = true;
 			try {
 				await refresh();
 			} catch (e: any) {
 				error.value = e.message;
+			} finally {
+				polling = false;
 			}
 		}
 	}, 4000);
@@ -300,6 +335,7 @@ onUnmounted(() => {
 
 <template>
 	<div class="meteo-shell">
+		<a class="skip-link" href="#main-content" @click.prevent="pageHeading?.focus()">跳转到主要内容</a>
 		<aside class="sidebar">
 			<a class="brand" href="#overview"
 				><span class="brand-icon"><Cloudy /></span><span>MeteoFormer<small>区域气象预测系统</small></span></a
@@ -324,7 +360,7 @@ onUnmounted(() => {
 				<p>输入 12 小时 · 预报 24 小时</p>
 			</div>
 			<div class="sidebar-status">
-				<i :class="{ online: connected }" /><span>{{ isDemo ? (connected ? '演示快照已加载' : '正在加载演示') : (connected ? '气象服务已连接' : '气象服务未连接') }}</span>
+				<i :class="{ online: connected }" /><span>{{ isDemo ? (connected ? '演示快照已加载' : loading ? '正在加载演示' : '演示快照未加载') : (connected ? '气象服务已连接' : '气象服务未连接') }}</span>
 			</div>
 		</aside>
 		<div class="workspace">
@@ -334,17 +370,17 @@ onUnmounted(() => {
 				</div>
 				<div class="topbar-actions">
 					<span class="timezone">北京时间 UTC+8</span
-					><button class="icon-button" aria-label="刷新数据" :disabled="isBusy" @click="action('正在刷新', refresh)"><Refresh /></button
+					><button class="icon-button" aria-label="刷新数据" title="刷新数据" :disabled="isBusy || loading" @click="action('正在刷新', reloadData)"><Refresh /></button
 					><button v-if="!isDemo" class="user-button" @click="admin ? logout() : (loginOpen = true)" :disabled="isBusy">
 						<span class="avatar">{{ admin ? '管' : '访' }}</span
 						>{{ admin ? '管理员 · 退出' : '访客 · 管理员登录' }}
 					</button>
 				</div>
 			</header>
-			<main :class="{ 'forecast-main': page === 'overview' || page === 'forecast' }">
+			<main id="main-content" :class="{ 'forecast-main': page === 'overview' || page === 'forecast' }">
 				<div class="page-heading">
 					<div>
-						<h1>{{ currentPage.label }}</h1>
+						<h1 ref="pageHeading" tabindex="-1">{{ currentPage.label }}</h1>
 						<p>{{ currentPage.subtitle }}</p>
 					</div>
 					<span class="page-date" v-if="forecast && (page === 'overview' || page === 'forecast')">起报 {{ date(forecast.init_time) }}<small>北京时间 · 预报至 +24 h</small></span>
@@ -363,7 +399,11 @@ onUnmounted(() => {
 					><button aria-label="关闭提示" @click="notice = ''">×</button>
 				</div>
 				<div v-if="busy" class="notice busy" role="status"><span class="spinner" />{{ busy }}…</div>
-				<div v-if="loading" class="empty panel">{{ isDemo ? '正在加载演示快照…' : '正在连接气象服务…' }}</div>
+				<div v-if="loading" class="empty panel" role="status"><span class="spinner" />{{ isDemo ? '正在加载演示快照…' : '正在连接气象服务…' }}</div>
+				<div v-else-if="loadError" class="empty panel connection-error" role="alert">
+					<Warning /><h2>{{ isDemo ? '演示快照暂时无法加载' : '暂时无法连接气象服务' }}</h2>
+					<p>{{ loadError }}</p><button class="primary" @click="connect"><Refresh />重新连接</button>
+				</div>
 
 				<template v-else-if="page === 'overview' || page === 'forecast'">
 					<section class="panel forecast-controls">
@@ -375,7 +415,7 @@ onUnmounted(() => {
 										{{ date(f.init_time) }} · {{ f.engine_label }} · {{ sourceName(f.source) }}
 									</option>
 								</select></label
-							><button class="secondary" aria-label="NetCDF 下载" :disabled="!forecast || isBusy" @click="download(`/forecast/download?forecast_id=${selected}`)">
+							><button class="secondary" aria-label="NetCDF 下载" :disabled="!forecast || isBusy || downloading" @click="download(`/forecast/download?forecast_id=${selected}`)">
 								<Download /><span>NetCDF</span>
 							</button>
 						</div>
@@ -422,7 +462,7 @@ onUnmounted(() => {
 									<button
 										class="secondary image-download"
 										aria-label="下载当前气象图片"
-										:disabled="isBusy"
+										:disabled="isBusy || downloading || mapLoading || !!mapError"
 										@click="download(`/forecast/image?forecast_id=${selected}&variable=${variable}&lead=${lead}`)"
 									>
 										<Download /><span>导出图片</span>
@@ -439,10 +479,19 @@ onUnmounted(() => {
 										{{ v.label }}<small>{{ v.unit }}</small>
 									</button>
 								</div>
-								<WeatherMap v-if="grid" :grid="grid" :point="point" @select="mapPoint" />
-								<div v-else class="empty">气象场加载中…</div>
+								<div class="field-viewport" :aria-busy="mapLoading">
+									<WeatherMap v-if="grid" :grid="grid" :point="point" @select="mapPoint" />
+									<div v-else-if="mapError" class="empty map-error" role="alert">
+										<Warning /><h3>气象场未能加载</h3><p>{{ mapError }}</p><button class="secondary" @click="loadMap"><Refresh />重试地图</button>
+									</div>
+									<div v-else class="empty" role="status"><span class="spinner" />气象场加载中…</div>
+									<div v-if="mapLoading && grid" class="map-loading" role="status"><span class="spinner" />正在更新气象场…</div>
+								</div>
 								<div class="timeline">
-									<span>预报时效</span><div class="timeline-track"><input aria-label="预报时效" type="range" min="1" max="24" v-model.number="lead" /><div class="timeline-ticks" aria-hidden="true"><span>+1 h</span><span>+6 h</span><span>+12 h</span><span>+18 h</span><span>+24 h</span></div></div><strong>+{{ String(lead).padStart(2, '0') }} h</strong>
+									<button class="step-button" aria-label="上一小时" title="上一小时" :disabled="lead <= 1" @click="lead--"><ArrowLeft /></button>
+									<div class="timeline-track"><input aria-label="预报时效" :aria-valuetext="`起报后 ${lead} 小时`" type="range" min="1" max="24" v-model.number="lead" /><div class="timeline-ticks" aria-hidden="true"><span>+1 h</span><span>+6 h</span><span>+12 h</span><span>+18 h</span><span>+24 h</span></div></div>
+									<button class="step-button" aria-label="下一小时" title="下一小时" :disabled="lead >= 24" @click="lead++"><ArrowRight /></button>
+									<strong><span>预报时效</span>+{{ String(lead).padStart(2, '0') }} h</strong>
 								</div>
 								<p class="map-footnote">色标在同一批次内保持一致；海岸线为地理参照，不代表行政区界。</p>
 							</section>
@@ -457,27 +506,30 @@ onUnmounted(() => {
 								<form @submit.prevent="action('正在查询', queryPoint)" class="point-form">
 									<label>经度 °E<input aria-label="经度" type="number" v-model.number="point.lon" min="-180" max="180" step="any" required /></label
 									><label>纬度 °N<input aria-label="纬度" type="number" v-model.number="point.lat" min="-90" max="90" step="any" required /></label
-									><button class="primary" :disabled="isBusy">查询预报 <ArrowRight /></button>
+									><button class="primary" :disabled="isBusy || pointLoading">查询预报 <ArrowRight /></button>
 								</form>
+								<p v-if="pointLoading" class="point-status" role="status">正在读取格点预报…</p>
+								<p v-else-if="pointError" class="point-status point-error" role="alert">{{ pointError }}</p>
 								<template v-if="pointResult"
 									><div class="point-weather">
-										<span class="point-temp-label">2 米气温</span><strong>{{ number(pointResult.hourly[lead - 1].t2m) }}<small>°C</small></strong
+										<span class="point-temp-label">{{ currentVariable.fullLabel }}</span><strong>{{ number(pointResult.hourly[lead - 1][variable]) }}<small>{{ currentVariable.unit }}</small></strong
 										><span>{{ date(pointResult.hourly[lead - 1].time) }} · +{{ lead }} h</span>
 									</div>
 									<dl class="point-facts">
+										<div v-if="variable !== 't2m'"><dt>2 米气温</dt><dd>{{ number(pointResult.hourly[lead - 1].t2m) }} °C</dd></div>
 										<div>
-											<dt>风速 / 风向</dt>
-											<dd>{{ number(pointResult.hourly[lead - 1].wind) }} m/s · {{ number(pointResult.hourly[lead - 1].wind_direction, 0) }}°</dd>
+											<dt>{{ variable === 'wind' ? '风向' : '风速 / 风向' }}</dt>
+											<dd><template v-if="variable !== 'wind'">{{ number(pointResult.hourly[lead - 1].wind) }} m/s · </template>{{ number(pointResult.hourly[lead - 1].wind_direction, 0) }}°</dd>
 										</div>
-										<div>
+										<div v-if="variable !== 'rh'">
 											<dt>相对湿度</dt>
 											<dd>{{ number(pointResult.hourly[lead - 1].rh) }} %</dd>
 										</div>
-										<div>
+										<div v-if="variable !== 'precip'">
 											<dt>小时降水</dt>
 											<dd>{{ number(pointResult.hourly[lead - 1].precip) }} mm</dd>
 										</div>
-										<div>
+										<div v-if="variable !== 'msl'">
 											<dt>海平面气压</dt>
 											<dd>{{ number(pointResult.hourly[lead - 1].msl) }} hPa</dd>
 										</div>
@@ -495,7 +547,7 @@ onUnmounted(() => {
 									<p class="help">
 										最近格点：{{ number(pointResult.grid_point.lon, 3) }}°E / {{ number(pointResult.grid_point.lat, 3) }}°N<br />风向表示来向，正北为
 										0°。
-									</p></template
+									</p><button class="text-button trend-link" @click="viewHourly">查看 24 小时趋势 <ArrowRight /></button></template
 								>
 							</section>
 						</div>
@@ -524,7 +576,7 @@ onUnmounted(() => {
 						<section v-if="pointResult" class="panel hourly-panel">
 							<div class="section-heading">
 								<div>
-									<h2>格点逐小时预报</h2>
+									<h2 ref="hourlyHeading" tabindex="-1">格点逐小时预报</h2>
 									<p>气温与逐小时降水 · 北京时间</p>
 								</div>
 								<span class="chart-key">● 气温 <span>▰ 降水</span></span>
@@ -645,7 +697,7 @@ onUnmounted(() => {
 								</p>
 								<div class="dataset-notes" v-if="d.notes.length">{{ d.notes.join('；') }}</div>
 							</div>
-							<button class="secondary" :disabled="isBusy" @click="download(`/datasets/${d.id}/download`)"><Download />导出</button>
+							<button class="secondary" :disabled="isBusy || downloading" @click="download(`/datasets/${d.id}/download`)"><Download />导出</button>
 						</div>
 					</section>
 				</template>
@@ -827,8 +879,14 @@ onUnmounted(() => {
 				<footer class="workspace-footer"><span>MeteoFormer · 实验预报不作为官方气象预警</span><span v-if="isDemo" class="footer-links"><a :href="repositoryUrl" target="_blank" rel="noopener noreferrer">GitHub 源码</a><a :href="`${repositoryUrl}#本地运行完整系统`" target="_blank" rel="noopener noreferrer">本地运行</a></span></footer>
 			</main>
 		</div>
-		<div v-if="loginOpen" class="modal-backdrop" @click.self="loginOpen = false" @keydown.esc="loginOpen = false">
-			<section class="login-modal" role="dialog" aria-modal="true" aria-labelledby="login-title">
+		<aside v-if="downloadState !== 'idle'" class="download-tray" aria-label="文件下载">
+			<div class="download-heading"><Download /><strong role="status">{{ downloadTitle }}</strong><button v-if="!downloading" class="icon-button" aria-label="关闭下载提示" @click="closeDownload"><Close /></button></div>
+			<p class="download-filename">{{ downloadFilename }}</p>
+			<template v-if="downloading"><progress aria-label="文件下载进度" :value="downloadPercent" max="100" /><div class="download-details"><span>{{ downloadSize }}<template v-if="downloadPercent !== undefined"> · {{ downloadPercent }}%</template></span><button class="text-button" @click="cancelDownload">取消下载</button></div></template>
+			<p v-if="downloadMessage" class="download-error" role="alert">{{ downloadMessage }}</p>
+			<button v-if="downloadState === 'error' || downloadState === 'cancelled'" class="text-button" @click="retryDownload"><Refresh />重新下载</button>
+		</aside>
+		<dialog v-if="!isDemo" ref="loginDialog" class="login-modal" aria-labelledby="login-title" @close="loginOpen = false" @cancel="loginOpen = false">
 				<button class="modal-close icon-button" aria-label="关闭登录" @click="loginOpen = false"><Close /></button>
 				<div class="login-symbol"><Lock /></div>
 				<h2 id="login-title">进入管理员模式</h2>
@@ -839,7 +897,6 @@ onUnmounted(() => {
 					<button class="primary" :disabled="isBusy">{{ isBusy ? '正在验证…' : '登录' }}</button>
 				</form>
 				<p class="help">首次启动生成的密码位于后端数据目录。部署时可通过 METEO_ADMIN_PASSWORD 配置。</p>
-			</section>
-		</div>
+		</dialog>
 	</div>
 </template>

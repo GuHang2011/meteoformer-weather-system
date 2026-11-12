@@ -5,7 +5,7 @@ import urllib.parse
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
-FRONT = ROOT / 'frontend' if (ROOT / 'frontend').is_dir() else ROOT / 'upload/CropDiseasesDetection_vue'
+FRONT = ROOT / 'frontend' if (ROOT / 'frontend').is_dir() else ROOT / 'frontend'
 OUT = FRONT / 'src/weather/fonts'
 OUT.mkdir(parents=True, exist_ok=True)
 text = ''.join(p.read_text('utf-8') for p in (FRONT / 'src/weather').glob('*') if p.suffix in ('.vue', '.ts'))

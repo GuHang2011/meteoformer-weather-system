@@ -70,6 +70,7 @@ const base = process.env.DEMO_URL || 'http://127.0.0.1:4176/meteoformer-weather-
       assert.equal(file.suggestedFilename(), filename);
       const destination = path.join(out, filename); await file.saveAs(destination);
       const bytes = fs.readFileSync(destination); assert(bytes.subarray(0, signature.length).equals(signature));
+      await page.getByRole('button', { name: '关闭下载提示', exact: true }).click();
     }
     await download(page.getByRole('button', { name: 'NetCDF 下载' }), 'forecast.nc', Buffer.from('CDF'));
     await download(page.getByRole('button', { name: '下载当前气象图片' }), 't2m-24h.png', Buffer.from([137,80,78,71]));
@@ -90,8 +91,8 @@ const base = process.env.DEMO_URL || 'http://127.0.0.1:4176/meteoformer-weather-
         await page.mouse.click(target.x + target.width * 0.35, target.y + target.height * 0.35);
         const lon = snapshot.data.lon[0] + (snapshot.data.lon.at(-1) - snapshot.data.lon[0]) * 0.35;
         const lat = snapshot.data.lat.at(-1) - (snapshot.data.lat.at(-1) - snapshot.data.lat[0]) * 0.35;
-        assert.equal(Number(await page.getByRole('spinbutton', { name: '经度', exact: true }).inputValue()), snapshot.data.lon[nearest(snapshot.data.lon, lon)]);
-        assert.equal(Number(await page.getByRole('spinbutton', { name: '纬度', exact: true }).inputValue()), snapshot.data.lat[nearest(snapshot.data.lat, lat)]);
+        assert(Math.abs(Number(await page.getByRole('spinbutton', { name: '经度', exact: true }).inputValue()) - snapshot.data.lon[nearest(snapshot.data.lon, lon)]) < 0.0001);
+        assert(Math.abs(Number(await page.getByRole('spinbutton', { name: '纬度', exact: true }).inputValue()) - snapshot.data.lat[nearest(snapshot.data.lat, lat)]) < 0.0001);
         await page.locator('.point-weather strong').waitFor();
         await page.evaluate(() => window.scrollTo(0, 0));
       }

@@ -25,7 +25,7 @@
 .map-valid-time { color: #c0ced7; }
 .map-canvas {
 	position: relative;
-	height: var(--map-canvas-height, clamp(280px, 34vh, 360px));
+	height: var(--map-canvas-height, clamp(320px, 38vh, 440px));
 	overflow: hidden;
 }
 .map-canvas > svg {

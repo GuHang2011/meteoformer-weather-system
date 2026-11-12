@@ -1,14 +1,11 @@
+import { fetchJson } from './request';
 // Public snapshots are produced by scripts/export-demo.py from synthetic runs.
 export const isDemo = import.meta.env.MODE === 'demo';
 export const repositoryUrl = 'https://github.com/GuHang2011/meteoformer-weather-system';
 let snapshotPromise: Promise<any> | undefined;
 export function snapshot(): Promise<any> {
 	if (!snapshotPromise) {
-		snapshotPromise = fetch(`${import.meta.env.BASE_URL}demo/snapshot.json`)
-			.then((response) => {
-				if (!response.ok) throw new Error('演示数据加载失败，请刷新重试。');
-				return response.json();
-			})
+		snapshotPromise = fetchJson(`${import.meta.env.BASE_URL}demo/snapshot.json`)
 			.catch((error) => { snapshotPromise = undefined; throw error; });
 	}
 	return snapshotPromise;
